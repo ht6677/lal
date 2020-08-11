@@ -16,12 +16,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/q191201771/lal/pkg/aac"
+	"github.com/q191201771/lal/pkg/base"
 
 	"github.com/q191201771/lal/pkg/httpflv"
 	"github.com/q191201771/lal/pkg/logic"
 	"github.com/q191201771/lal/pkg/rtmp"
-	log "github.com/q191201771/naza/pkg/nazalog"
+	"github.com/q191201771/naza/pkg/nazalog"
 )
 
 // RTMP拉流客户端，从远端服务器拉取RTMP流，存储为本地FLV文件
@@ -30,7 +30,7 @@ import (
 // 1. 对一路流拉取n份
 // 2. 拉取n路流
 //
-// Usage of ./bin/rtmppull:
+// Usage of ./bin/pullrtmp:
 //   -i string
 //     	specify pull rtmp url
 //   -n int
@@ -38,9 +38,9 @@ import (
 //   -o string
 //     	specify ouput flv file
 // Example:
-//   ./bin/rtmppull -i rtmp://127.0.0.1:19350/live/test -o out.flv
-//   ./bin/rtmppull -i rtmp://127.0.0.1:19350/live/test -n 1000
-//   ./bin/rtmppull -i rtmp://127.0.0.1:19350/live/test_{i} -n 1000
+//   ./bin/pullrtmp -i rtmp://127.0.0.1:19350/live/test -o out.flv
+//   ./bin/pullrtmp -i rtmp://127.0.0.1:19350/live/test -n 1000
+//   ./bin/pullrtmp -i rtmp://127.0.0.1:19350/live/test_{i} -n 1000
 
 func main() {
 	urlTmpl, fileNameTmpl, num := parseFlag()
@@ -65,10 +65,10 @@ func pull(url string, filename string) {
 
 	if filename != "" {
 		err = w.Open(filename)
-		log.Assert(nil, err)
+		nazalog.Assert(nil, err)
 		defer w.Dispose()
 		err = w.WriteRaw(httpflv.FLVHeader)
-		log.Assert(nil, err)
+		nazalog.Assert(nil, err)
 	}
 
 	session := rtmp.NewPullSession(func(option *rtmp.PullSessionOption) {
@@ -77,22 +77,19 @@ func pull(url string, filename string) {
 		option.ReadAVTimeoutMS = 10000
 	})
 
-	err = session.Pull(url, func(msg rtmp.AVMsg) {
-		log.Debugf("header=%+v", msg.Header)
-		if msg.IsAACSeqHeader() {
-			log.Infof("header=%+v, abs ts=%d, msg.body=%+v", msg.Header, msg.Header.TimestampAbs, msg.Payload)
-			var adts aac.ADTS
-			adts.PutAACSequenceHeader(msg.Payload)
-			adtsBuf := adts.GetADTS(10)
-			log.Infof("adts=%+v", adtsBuf)
-		}
-		if filename != "" {
-			tag := logic.Trans.RTMPMsg2FLVTag(msg)
-			err := w.WriteTag(*tag)
-			log.Assert(nil, err)
-		}
-	})
-	log.Assert(nil, err)
+	err = session.Pull(
+		url,
+		func(msg base.RTMPMsg) {
+			nazalog.Debugf("header=%+v", msg.Header)
+			if filename != "" {
+				tag := logic.Trans.RTMPMsg2FLVTag(msg)
+				err := w.WriteTag(*tag)
+				nazalog.Assert(nil, err)
+			}
+		})
+	nazalog.Assert(nil, err)
+	err = <-session.Done()
+	nazalog.Debug(err)
 }
 
 func connect(urlTmpl string, fileNameTmpl string, num int) (urls []string, filenames []string) {
@@ -113,9 +110,9 @@ func parseFlag() (urlTmpl string, fileNameTmpl string, num int) {
 	if *i == "" {
 		flag.Usage()
 		_, _ = fmt.Fprintf(os.Stderr, `Example:
-  ./bin/rtmppull -i rtmp://127.0.0.1:19350/live/test -o out.flv
-  ./bin/rtmppull -i rtmp://127.0.0.1:19350/live/test -n 1000
-  ./bin/rtmppull -i rtmp://127.0.0.1:19350/live/test_{i} -n 1000
+  ./bin/pullrtmp -i rtmp://127.0.0.1:19350/live/test -o out.flv
+  ./bin/pullrtmp -i rtmp://127.0.0.1:19350/live/test -n 1000
+  ./bin/pullrtmp -i rtmp://127.0.0.1:19350/live/test_{i} -n 1000
 `)
 		os.Exit(1)
 	}

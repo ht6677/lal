@@ -14,6 +14,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/q191201771/lal/pkg/rtmp"
@@ -49,13 +51,14 @@ import (
 // - 检查时间戳正向大的跳跃
 // - 打印GOP中帧数量？
 // - slice_num?
+// - 输入源可以是httpflv，也可以是flv文件
 
 var (
 	timestampCheckFlag   = true
 	printStatFlag        = true
 	printEveryTagFlag    = false
 	printMetaData        = true
-	analysisVideoTagFlag = false
+	analysisVideoTagFlag = true
 )
 
 var (
@@ -99,17 +102,15 @@ func main() {
 
 		switch tag.Header.Type {
 		case httpflv.TagTypeMetadata:
-			//nazalog.Debugf("----------\n", hex.Dump(tag.Raw))
 			if printMetaData {
-				// TODO chef: 这部分可以移入到rtmp package中
-				_, l, err := rtmp.AMF0.ReadString(tag.Raw[11:])
-				nazalog.Assert(nil, err)
-				kv, _, err := rtmp.AMF0.ReadObject(tag.Raw[11+l:])
+				nazalog.Debugf("----------\n%s", hex.Dump(tag.Raw[11:]))
+
+				opa, err := rtmp.ParseMetadata(tag.Raw[11 : len(tag.Raw)-4])
 				nazalog.Assert(nil, err)
 				var buf bytes.Buffer
-				buf.WriteString(fmt.Sprintf("-----\ncount:%d\n", len(kv)))
-				for k, v := range kv {
-					buf.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
+				buf.WriteString(fmt.Sprintf("-----\ncount:%d\n", len(opa)))
+				for _, op := range opa {
+					buf.WriteString(fmt.Sprintf("  %s: %+v\n", op.Key, op.Value))
 				}
 				nazalog.Debugf("%+v", buf.String())
 			}
@@ -172,19 +173,41 @@ func analysisVideoTag(tag httpflv.Tag) {
 	} else {
 		body := tag.Raw[11:]
 
-		for i := 5; i != int(tag.Header.DataSize); {
+		i := 5
+		for i != int(tag.Header.DataSize) {
+			if i+4 > int(tag.Header.DataSize) {
+				nazalog.Errorf("invalid nalu size. i=%d, tag size=%d", i, int(tag.Header.DataSize))
+				break
+			}
 			naluLen := bele.BEUint32(body[i:])
+			if i+int(naluLen) > int(tag.Header.DataSize) {
+				nazalog.Errorf("invalid nalu size. i=%d, naluLen=%d, tag size=%d", i, naluLen, int(tag.Header.DataSize))
+				break
+			}
 			switch t {
 			case typeAVC:
-				if avc.CalcNaluType(body[i+4:]) == avc.NaluUnitTypeIDRSlice {
+				if avc.ParseNALUType(body[i+4]) == avc.NALUTypeIDRSlice {
 					if prevIDRTS != int64(-1) {
 						diffIDRTS = int64(tag.Header.Timestamp) - prevIDRTS
 					}
 					prevIDRTS = int64(tag.Header.Timestamp)
 				}
-				buf.WriteString(fmt.Sprintf(" [%s(%s)] ", avc.CalcNaluTypeReadable(body[i+4:]), avc.CalcSliceTypeReadable(body[i+4:])))
+				if avc.ParseNALUType(body[i+4]) == avc.NALUTypeSEI {
+					delay := SEIDelayMS(body[i+4 : i+4+int(naluLen)])
+					if delay != -1 {
+						buf.WriteString(fmt.Sprintf("delay: %dms", delay))
+					}
+				}
+				sliceTypeReadable, _ := avc.ParseSliceTypeReadable(body[i+4:])
+				buf.WriteString(fmt.Sprintf(" [%s(%s)] ", avc.ParseNALUTypeReadable(body[i+4]), sliceTypeReadable))
 			case typeHEVC:
-				buf.WriteString(fmt.Sprintf(" [%s] ", hevc.CalcNaluTypeReadable(body[i+4:])))
+				if hevc.ParseNALUType(body[i+4]) == hevc.NALUTypeSEI {
+					delay := SEIDelayMS(body[i+4 : i+4+int(naluLen)])
+					if delay != -1 {
+						buf.WriteString(fmt.Sprintf("delay: %dms", delay))
+					}
+				}
+				buf.WriteString(fmt.Sprintf(" [%s] ", hevc.ParseNALUTypeReadable(body[i+4])))
 			}
 			i = i + 4 + int(naluLen)
 		}
@@ -192,6 +215,22 @@ func analysisVideoTag(tag httpflv.Tag) {
 	if analysisVideoTagFlag {
 		nazalog.Debug(buf.String())
 	}
+}
+
+// 注意，SEI的内容是自定义格式，解析的代码不具有通用性
+func SEIDelayMS(seiNALU []byte) int {
+	items := strings.Split(string(seiNALU), ":")
+	if len(items) != 3 {
+		return -1
+	}
+
+	a, err := strconv.ParseInt(items[1], 10, 64)
+	if err != nil {
+		return -1
+	}
+	t := time.Unix(a/1e3, a%1e3)
+	d := time.Now().Sub(t)
+	return int(d.Nanoseconds() / 1e6)
 }
 
 func parseFlag() string {

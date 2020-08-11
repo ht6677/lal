@@ -12,23 +12,26 @@ import (
 	"net"
 	"strings"
 
+	"github.com/q191201771/lal/pkg/base"
+
 	"github.com/q191201771/naza/pkg/bele"
 	"github.com/q191201771/naza/pkg/connection"
-	log "github.com/q191201771/naza/pkg/nazalog"
+	"github.com/q191201771/naza/pkg/nazalog"
 	"github.com/q191201771/naza/pkg/unique"
 )
 
 // TODO chef: 没有进化成Pub Sub时的超时释放
 
 type ServerSessionObserver interface {
-	NewRTMPPubSessionCB(session *ServerSession) // 上层代码应该在这个事件回调中注册音视频数据的监听
-	NewRTMPSubSessionCB(session *ServerSession)
+	OnNewRTMPPubSession(session *ServerSession) // 上层代码应该在这个事件回调中注册音视频数据的监听
+	OnNewRTMPSubSession(session *ServerSession)
 }
 
 var _ ServerSessionObserver = &Server{}
 
 type PubSessionObserver interface {
-	AVMsgObserver
+	// 注意，回调结束后，内部会复用Payload内存块
+	OnReadRTMPAVMsg(msg base.RTMPMsg)
 }
 
 func (s *ServerSession) SetPubSessionObserver(obs PubSessionObserver) {
@@ -44,10 +47,10 @@ const (
 )
 
 type ServerSession struct {
+	UniqueKey              string
 	AppName                string
 	StreamName             string
 	StreamNameWithRawQuery string
-	UniqueKey              string
 
 	obs           ServerSessionObserver
 	t             ServerSessionType
@@ -62,12 +65,11 @@ type ServerSession struct {
 
 	// only for SubSession
 	IsFresh bool
-	//WaitKeyNalu bool
 }
 
 func NewServerSession(obs ServerSessionObserver, conn net.Conn) *ServerSession {
 	uk := unique.GenUniqueKey("RTMPPUBSUB")
-	log.Infof("lifecycle new rtmp server session. [%s]", uk)
+	nazalog.Infof("[%s] lifecycle new rtmp server session. addr=%s", uk, conn.RemoteAddr().String())
 	return &ServerSession{
 		conn: connection.New(conn, func(option *connection.Option) {
 			option.ReadBufSize = readBufSize
@@ -78,7 +80,6 @@ func NewServerSession(obs ServerSessionObserver, conn net.Conn) *ServerSession {
 		chunkComposer: NewChunkComposer(),
 		packer:        NewMessagePacker(),
 		IsFresh:       true,
-		//WaitKeyNalu:   true,
 	}
 }
 
@@ -100,7 +101,7 @@ func (s *ServerSession) Flush() error {
 }
 
 func (s *ServerSession) Dispose() {
-	log.Infof("lifecycle dispose rtmp server session. [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] lifecycle dispose rtmp server session.", s.UniqueKey)
 	_ = s.conn.Close()
 }
 
@@ -112,9 +113,9 @@ func (s *ServerSession) handshake() error {
 	if err := s.hs.ReadC0C1(s.conn); err != nil {
 		return err
 	}
-	log.Infof("-----> Handshake C0+C1. [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] < R Handshake C0+C1.", s.UniqueKey)
 
-	log.Infof("<----- Handshake S0+S1+S2. [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] > W Handshake S0+S1+S2.", s.UniqueKey)
 	if err := s.hs.WriteS0S1S2(s.conn); err != nil {
 		return err
 	}
@@ -122,32 +123,32 @@ func (s *ServerSession) handshake() error {
 	if err := s.hs.ReadC2(s.conn); err != nil {
 		return err
 	}
-	log.Infof("-----> Handshake C2. [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] < R Handshake C2.", s.UniqueKey)
 	return nil
 }
 
 func (s *ServerSession) doMsg(stream *Stream) error {
 	//log.Debugf("%d %d %v", stream.header.msgTypeID, stream.msgLen, stream.header)
 	switch stream.header.MsgTypeID {
-	case typeidSetChunkSize:
+	case base.RTMPTypeIDSetChunkSize:
 		// noop
 		// 因为底层的 chunk composer 已经处理过了，这里就不用处理
-	case typeidCommandMessageAMF0:
+	case base.RTMPTypeIDCommandMessageAMF0:
 		return s.doCommandMessage(stream)
-	case TypeidDataMessageAMF0:
+	case base.RTMPTypeIDMetadata:
 		return s.doDataMessageAMF0(stream)
-	case typeidAck:
+	case base.RTMPTypeIDAck:
 		return s.doACK(stream)
-	case TypeidAudio:
+	case base.RTMPTypeIDAudio:
 		fallthrough
-	case TypeidVideo:
+	case base.RTMPTypeIDVideo:
 		if s.t != ServerSessionTypePub {
-			log.Errorf("read audio/video message but server session not pub type. [%s]", s.UniqueKey)
+			nazalog.Errorf("[%s] read audio/video message but server session not pub type.", s.UniqueKey)
 			return ErrRTMP
 		}
 		s.avObs.OnReadRTMPAVMsg(stream.toAVMsg())
 	default:
-		log.Warnf("read unknown message. [%s] typeid=%d, %s", s.UniqueKey, stream.header.MsgTypeID, stream.toDebugString())
+		nazalog.Warnf("[%s] read unknown message. typeid=%d, %s", s.UniqueKey, stream.header.MsgTypeID, stream.toDebugString())
 
 	}
 	return nil
@@ -155,13 +156,13 @@ func (s *ServerSession) doMsg(stream *Stream) error {
 
 func (s *ServerSession) doACK(stream *Stream) error {
 	seqNum := bele.BEUint32(stream.msg.buf[stream.msg.b:stream.msg.e])
-	log.Infof("-----> Acknowledgement. [%s] ignore. sequence number=%d.", s.UniqueKey, seqNum)
+	nazalog.Infof("[%s] < R Acknowledgement. ignore. sequence number=%d.", s.UniqueKey, seqNum)
 	return nil
 }
 
 func (s *ServerSession) doDataMessageAMF0(stream *Stream) error {
 	if s.t != ServerSessionTypePub {
-		log.Errorf("read audio/video message but server session not pub type. [%s]", s.UniqueKey)
+		nazalog.Errorf("[%s] read audio/video message but server session not pub type.", s.UniqueKey)
 		return ErrRTMP
 	}
 
@@ -172,7 +173,7 @@ func (s *ServerSession) doDataMessageAMF0(stream *Stream) error {
 
 	switch val {
 	case "|RtmpSampleAccess":
-		log.Warnf("read data message, ignore it. [%s] val=%s", s.UniqueKey, val)
+		nazalog.Warnf("[%s] read data message, ignore it. val=%s", s.UniqueKey, val)
 		return nil
 	case "@setDataFrame":
 		// macos obs
@@ -183,13 +184,13 @@ func (s *ServerSession) doDataMessageAMF0(stream *Stream) error {
 			return err
 		}
 		if val != "onMetaData" {
-			log.Errorf("read unknown data message. [%s] val=%s, %s", s.UniqueKey, val, stream.toDebugString())
+			nazalog.Errorf("[%s] read unknown data message. val=%s, %s", s.UniqueKey, val, stream.toDebugString())
 			return ErrRTMP
 		}
 	case "onMetaData":
 		// noop
 	default:
-		log.Errorf("read unknown data message. [%s] val=%s, %s", s.UniqueKey, val, stream.toDebugString())
+		nazalog.Errorf("[%s] read unknown data message. val=%s, %s", s.UniqueKey, val, stream.toDebugString())
 		return nil
 	}
 
@@ -223,9 +224,11 @@ func (s *ServerSession) doCommandMessage(stream *Stream) error {
 	case "FCUnpublish":
 		fallthrough
 	case "getStreamLength":
-		log.Warnf("read command message, ignore it. [%s] cmd=%s, %s", s.UniqueKey, cmd, stream.toDebugString())
+		fallthrough
+	case "deleteStream":
+		nazalog.Debugf("[%s] read command message, ignore it. cmd=%s, %s", s.UniqueKey, cmd, stream.toDebugString())
 	default:
-		log.Errorf("read unknown command message. [%s] cmd=%s, %s", s.UniqueKey, cmd, stream.toDebugString())
+		nazalog.Errorf("[%s] read unknown command message. cmd=%s, %s", s.UniqueKey, cmd, stream.toDebugString())
 	}
 	return nil
 }
@@ -235,29 +238,28 @@ func (s *ServerSession) doConnect(tid int, stream *Stream) error {
 	if err != nil {
 		return err
 	}
-	var ok bool
-	s.AppName, ok = val["app"].(string)
-	if !ok {
-		return ErrRTMP
+	s.AppName, err = val.FindString("app")
+	if err != nil {
+		return err
 	}
-	log.Infof("-----> connect('%s'). [%s]", s.AppName, s.UniqueKey)
+	nazalog.Infof("[%s] < R connect('%s').", s.UniqueKey, s.AppName)
 
-	log.Infof("<----- Window Acknowledgement Size %d. [%s]", windowAcknowledgementSize, s.UniqueKey)
+	nazalog.Infof("[%s] > W Window Acknowledgement Size %d.", s.UniqueKey, windowAcknowledgementSize)
 	if err := s.packer.writeWinAckSize(s.conn, windowAcknowledgementSize); err != nil {
 		return err
 	}
 
-	log.Infof("<----- Set Peer Bandwidth. [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] > W Set Peer Bandwidth.", s.UniqueKey)
 	if err := s.packer.writePeerBandwidth(s.conn, peerBandwidth, peerBandwidthLimitTypeDynamic); err != nil {
 		return err
 	}
 
-	log.Infof("<----- SetChunkSize %d. [%s]", LocalChunkSize, s.UniqueKey)
+	nazalog.Infof("[%s] > W SetChunkSize %d.", s.UniqueKey, LocalChunkSize)
 	if err := s.packer.writeChunkSize(s.conn, LocalChunkSize); err != nil {
 		return err
 	}
 
-	log.Infof("<---- _result('NetConnection.Connect.Success'). [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] > W _result('NetConnection.Connect.Success').", s.UniqueKey)
 	if err := s.packer.writeConnectResult(s.conn, tid); err != nil {
 		return err
 	}
@@ -265,8 +267,8 @@ func (s *ServerSession) doConnect(tid int, stream *Stream) error {
 }
 
 func (s *ServerSession) doCreateStream(tid int, stream *Stream) error {
-	log.Infof("-----> createStream(). [%s]", s.UniqueKey)
-	log.Infof("<---- _result(). [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] < R createStream().", s.UniqueKey)
+	nazalog.Infof("[%s] > W _result().", s.UniqueKey)
 	if err := s.packer.writeCreateStreamResult(s.conn, tid); err != nil {
 		return err
 	}
@@ -288,10 +290,10 @@ func (s *ServerSession) doPublish(tid int, stream *Stream) (err error) {
 	if err != nil {
 		return err
 	}
-	log.Debugf("[%s] pubType=%s", s.UniqueKey, pubType)
-	log.Infof("-----> publish('%s') [%s]", s.StreamName, s.UniqueKey)
+	nazalog.Debugf("[%s] pubType=%s", s.UniqueKey, pubType)
+	nazalog.Infof("[%s] < R publish('%s')", s.UniqueKey, s.StreamName)
 
-	log.Infof("<---- onStatus('NetStream.Publish.Start'). [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] > W onStatus('NetStream.Publish.Start').", s.UniqueKey)
 	if err := s.packer.writeOnStatusPublish(s.conn, MSID1); err != nil {
 		return err
 	}
@@ -300,7 +302,7 @@ func (s *ServerSession) doPublish(tid int, stream *Stream) (err error) {
 	s.ModConnProps()
 
 	s.t = ServerSessionTypePub
-	s.obs.NewRTMPPubSessionCB(s)
+	s.obs.OnNewRTMPPubSession(s)
 
 	return nil
 }
@@ -316,10 +318,10 @@ func (s *ServerSession) doPlay(tid int, stream *Stream) (err error) {
 	ss := strings.Split(s.StreamNameWithRawQuery, "?")
 	s.StreamName = ss[0]
 
-	log.Infof("-----> play('%s'). [%s]", s.StreamName, s.UniqueKey)
+	nazalog.Infof("[%s] < R play('%s').", s.StreamName, s.UniqueKey)
 	// TODO chef: start duration reset
 
-	log.Infof("<----onStatus('NetStream.Play.Start'). [%s]", s.UniqueKey)
+	nazalog.Infof("[%s] > W onStatus('NetStream.Play.Start').", s.UniqueKey)
 	if err := s.packer.writeOnStatusPlay(s.conn, MSID1); err != nil {
 		return err
 	}
@@ -328,7 +330,7 @@ func (s *ServerSession) doPlay(tid int, stream *Stream) (err error) {
 	s.ModConnProps()
 
 	s.t = ServerSessionTypeSub
-	s.obs.NewRTMPSubSessionCB(s)
+	s.obs.OnNewRTMPSubSession(s)
 
 	return nil
 }

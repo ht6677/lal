@@ -16,6 +16,8 @@ import (
 	"io"
 	"log"
 
+	"github.com/q191201771/lal/pkg/base"
+
 	"github.com/q191201771/naza/pkg/bele"
 )
 
@@ -35,10 +37,10 @@ func (c *ChunkComposer) SetPeerChunkSize(val uint32) {
 	c.peerChunkSize = val
 }
 
-type CompleteMessageCB func(stream *Stream) error
+type OnCompleteMessage func(stream *Stream) error
 
 // @param cb 回调结束后，内存块会被 ChunkComposer 再次使用
-func (c *ChunkComposer) RunLoop(reader io.Reader, cb CompleteMessageCB) error {
+func (c *ChunkComposer) RunLoop(reader io.Reader, cb OnCompleteMessage) error {
 	bootstrap := make([]byte, 11)
 	absTsFlag := false
 
@@ -78,8 +80,8 @@ func (c *ChunkComposer) RunLoop(reader io.Reader, cb CompleteMessageCB) error {
 				return err
 			}
 			// 包头中为绝对时间戳
-			stream.header.Timestamp = bele.BEUint24(bootstrap)
-			stream.header.TimestampAbs = stream.header.Timestamp
+			stream.timestamp = bele.BEUint24(bootstrap)
+			stream.header.TimestampAbs = stream.timestamp
 			absTsFlag = true
 			stream.header.MsgLen = bele.BEUint24(bootstrap[3:])
 			stream.header.MsgTypeID = bootstrap[6]
@@ -91,7 +93,7 @@ func (c *ChunkComposer) RunLoop(reader io.Reader, cb CompleteMessageCB) error {
 				return err
 			}
 			// 包头中为相对时间戳
-			stream.header.Timestamp = bele.BEUint24(bootstrap)
+			stream.timestamp = bele.BEUint24(bootstrap)
 			//stream.header.TimestampAbs += stream.header.Timestamp
 			stream.header.MsgLen = bele.BEUint24(bootstrap[3:])
 			stream.header.MsgTypeID = bootstrap[6]
@@ -102,12 +104,13 @@ func (c *ChunkComposer) RunLoop(reader io.Reader, cb CompleteMessageCB) error {
 				return err
 			}
 			// 包头中为相对时间戳
-			stream.header.Timestamp = bele.BEUint24(bootstrap)
+			stream.timestamp = bele.BEUint24(bootstrap)
 			//stream.header.TimestampAbs += stream.header.Timestamp
 
 		case 3:
 			// noop
 		}
+		//nazalog.Debugf("RTMP_CHUNK_COMPOSER chunk.fmt=%d, csid=%d, header=%+v", fmt, csid, stream.header)
 
 		// 5.3.1.3 Extended Timestamp
 		// 使用ffmpeg推流时，发现时间戳超过3字节最大值后，即使是fmt3(即包头大小为0)，依然存在ext ts字段
@@ -116,24 +119,23 @@ func (c *ChunkComposer) RunLoop(reader io.Reader, cb CompleteMessageCB) error {
 		// - 测试其他客户端和ext ts相关的表现
 		// - 这部分可能还有问题，需要根据具体的case调整
 		//if stream.header.Timestamp == maxTimestampInMessageHeader {
-		if stream.header.Timestamp >= maxTimestampInMessageHeader {
+		if stream.timestamp >= maxTimestampInMessageHeader {
 			if _, err := io.ReadAtLeast(reader, bootstrap[:4], 4); err != nil {
 				return err
 			}
-			stream.header.Timestamp = bele.BEUint32(bootstrap)
+			stream.timestamp = bele.BEUint32(bootstrap)
+			//nazalog.Debugf("RTMP_CHUNK_COMPOSER ext. extTs=%d", stream.header.Timestamp)
 			switch fmt {
 			case 0:
-				stream.header.TimestampAbs = stream.header.Timestamp
+				stream.header.TimestampAbs = stream.timestamp
 			case 1:
 				fallthrough
 			case 2:
-				stream.header.TimestampAbs = stream.header.TimestampAbs - maxTimestampInMessageHeader + stream.header.Timestamp
+				stream.header.TimestampAbs = stream.header.TimestampAbs - maxTimestampInMessageHeader + stream.timestamp
 			case 3:
 				// noop
 			}
 		}
-		//stream.header.CSID = csid
-		//nazalog.Debugf("ChunkComposer chunk fmt:%d header:%+v csid:%d len:%d ts:%d", fmt, stream.header, csid, stream.header.MsgLen, stream.header.TimestampAbs)
 
 		var neededSize uint32
 		if stream.header.MsgLen <= c.peerChunkSize {
@@ -153,7 +155,7 @@ func (c *ChunkComposer) RunLoop(reader io.Reader, cb CompleteMessageCB) error {
 
 		if stream.msg.len() == stream.header.MsgLen {
 			// 对端设置了chunk size
-			if stream.header.MsgTypeID == typeidSetChunkSize {
+			if stream.header.MsgTypeID == base.RTMPTypeIDSetChunkSize {
 				val := bele.BEUint32(stream.msg.buf)
 				c.SetPeerChunkSize(val)
 			}
@@ -161,10 +163,10 @@ func (c *ChunkComposer) RunLoop(reader io.Reader, cb CompleteMessageCB) error {
 			stream.header.CSID = csid
 			if !absTsFlag {
 				// 这么处理相当于取最后一个chunk的时间戳差值，有的协议栈是取的第一个，正常来说都可以
-				stream.header.TimestampAbs += stream.header.Timestamp
+				stream.header.TimestampAbs += stream.timestamp
 			}
 			absTsFlag = false
-			//nazalog.Debugf("ChunkComposer message fmt:%d header:%+v csid:%d len:%d ts:%d", fmt, stream.header, csid, stream.header.MsgLen, stream.header.TimestampAbs)
+			//nazalog.Debugf("RTMP_CHUNK_COMPOSER cb. fmt=%d, csid=%d, header=%+v", fmt, csid, stream.header)
 
 			if err := cb(stream); err != nil {
 				return err

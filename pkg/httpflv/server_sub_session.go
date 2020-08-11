@@ -10,13 +10,15 @@ package httpflv
 
 import (
 	"net"
-	url2 "net/url"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/q191201771/naza/pkg/nazahttp"
+
 	"github.com/q191201771/naza/pkg/connection"
 
-	log "github.com/q191201771/naza/pkg/nazalog"
+	"github.com/q191201771/naza/pkg/nazalog"
 	"github.com/q191201771/naza/pkg/unique"
 )
 
@@ -39,19 +41,17 @@ type SubSession struct {
 	URI        string
 	Headers    map[string]string
 
-	IsFresh     bool
-	WaitKeyNalu bool
+	IsFresh bool
 
 	conn connection.Connection
 }
 
 func NewSubSession(conn net.Conn) *SubSession {
 	uk := unique.GenUniqueKey("FLVSUB")
-	log.Infof("lifecycle new SubSession. [%s] remoteAddr=%s", uk, conn.RemoteAddr().String())
+	nazalog.Infof("[%s] lifecycle new SubSession. addr=%s", uk, conn.RemoteAddr().String())
 	return &SubSession{
-		UniqueKey:   uk,
-		IsFresh:     true,
-		WaitKeyNalu: true,
+		UniqueKey: uk,
+		IsFresh:   true,
 		conn: connection.New(conn, func(option *connection.Option) {
 			option.ReadBufSize = readBufSize
 			option.WriteChanSize = wChanSize
@@ -74,10 +74,10 @@ func (session *SubSession) ReadRequest() (err error) {
 		requestLine string
 		method      string
 	)
-	if requestLine, session.Headers, err = parseHTTPHeader(session.conn); err != nil {
+	if requestLine, session.Headers, err = nazahttp.ReadHTTPHeader(session.conn); err != nil {
 		return
 	}
-	if method, session.URI, _, err = parseRequestLine(requestLine); err != nil {
+	if method, session.URI, _, err = nazahttp.ParseHTTPRequestLine(requestLine); err != nil {
 		return
 	}
 	if method != "GET" {
@@ -85,8 +85,8 @@ func (session *SubSession) ReadRequest() (err error) {
 		return
 	}
 
-	var urlObj *url2.URL
-	if urlObj, err = url2.Parse(session.URI); err != nil {
+	var urlObj *url.URL
+	if urlObj, err = url.Parse(session.URI); err != nil {
 		return
 	}
 	if !strings.HasSuffix(urlObj.Path, ".flv") {
@@ -117,12 +117,12 @@ func (session *SubSession) RunLoop() error {
 }
 
 func (session *SubSession) WriteHTTPResponseHeader() {
-	log.Infof("<----- http response header. [%s]", session.UniqueKey)
+	nazalog.Debugf("[%s] > W http response header.", session.UniqueKey)
 	session.WriteRawPacket(flvHTTPResponseHeader)
 }
 
 func (session *SubSession) WriteFLVHeader() {
-	log.Infof("<----- http flv header. [%s]", session.UniqueKey)
+	nazalog.Debugf("[%s] > W http flv header.", session.UniqueKey)
 	session.WriteRawPacket(FLVHeader)
 }
 

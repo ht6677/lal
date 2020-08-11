@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/q191201771/lal/pkg/rtsp"
+
 	"github.com/q191201771/lal/pkg/hls"
 
 	"github.com/q191201771/lal/pkg/httpflv"
@@ -21,20 +23,18 @@ import (
 )
 
 type ServerManager struct {
-	config *Config
-
 	rtmpServer    *rtmp.Server
 	httpflvServer *httpflv.Server
 	hlsServer     *hls.Server
+	rtspServer    *rtsp.Server
 	exitChan      chan struct{}
 
 	mutex    sync.Mutex
 	groupMap map[string]*Group // TODO chef: with appName
 }
 
-func NewServerManager(config *Config) *ServerManager {
+func NewServerManager() *ServerManager {
 	m := &ServerManager{
-		config:   config,
 		groupMap: make(map[string]*Group),
 		exitChan: make(chan struct{}),
 	}
@@ -46,6 +46,9 @@ func NewServerManager(config *Config) *ServerManager {
 	}
 	if config.HLSConfig.Enable {
 		m.hlsServer = hls.NewServer(config.HLSConfig.SubListenAddr, config.HLSConfig.OutPath)
+	}
+	if config.RTSPConfig.Enable {
+		m.rtspServer = rtsp.NewServer(config.RTSPConfig.Addr, m)
 	}
 	return m
 }
@@ -87,6 +90,18 @@ func (sm *ServerManager) RunLoop() {
 		}()
 	}
 
+	if sm.rtspServer != nil {
+		if err := sm.rtspServer.Listen(); err != nil {
+			nazalog.Error(err)
+			os.Exit(1)
+		}
+		go func() {
+			if err := sm.rtspServer.RunLoop(); err != nil {
+				nazalog.Error(err)
+			}
+		}()
+	}
+
 	t := time.NewTicker(1 * time.Second)
 	defer t.Stop()
 	var count uint32
@@ -95,11 +110,14 @@ func (sm *ServerManager) RunLoop() {
 		case <-sm.exitChan:
 			return
 		case <-t.C:
-			sm.check()
+			sm.iterateGroup()
 			count++
 			if (count % 10) == 0 {
 				sm.mutex.Lock()
-				nazalog.Debugf("group size:%d", len(sm.groupMap))
+				nazalog.Debugf("group size=%d", len(sm.groupMap))
+				for _, g := range sm.groupMap {
+					nazalog.Debugf("%s", g.StringifyStats())
+				}
 				sm.mutex.Unlock()
 			}
 		}
@@ -128,7 +146,7 @@ func (sm *ServerManager) Dispose() {
 }
 
 // ServerObserver of rtmp.Server
-func (sm *ServerManager) NewRTMPPubSessionCB(session *rtmp.ServerSession) bool {
+func (sm *ServerManager) OnNewRTMPPubSession(session *rtmp.ServerSession) bool {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	group := sm.getOrCreateGroup(session.AppName, session.StreamName)
@@ -136,7 +154,7 @@ func (sm *ServerManager) NewRTMPPubSessionCB(session *rtmp.ServerSession) bool {
 }
 
 // ServerObserver of rtmp.Server
-func (sm *ServerManager) DelRTMPPubSessionCB(session *rtmp.ServerSession) {
+func (sm *ServerManager) OnDelRTMPPubSession(session *rtmp.ServerSession) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	group := sm.getGroup(session.AppName, session.StreamName)
@@ -146,7 +164,7 @@ func (sm *ServerManager) DelRTMPPubSessionCB(session *rtmp.ServerSession) {
 }
 
 // ServerObserver of rtmp.Server
-func (sm *ServerManager) NewRTMPSubSessionCB(session *rtmp.ServerSession) bool {
+func (sm *ServerManager) OnNewRTMPSubSession(session *rtmp.ServerSession) bool {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	group := sm.getOrCreateGroup(session.AppName, session.StreamName)
@@ -155,7 +173,7 @@ func (sm *ServerManager) NewRTMPSubSessionCB(session *rtmp.ServerSession) bool {
 }
 
 // ServerObserver of rtmp.Server
-func (sm *ServerManager) DelRTMPSubSessionCB(session *rtmp.ServerSession) {
+func (sm *ServerManager) OnDelRTMPSubSession(session *rtmp.ServerSession) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	group := sm.getGroup(session.AppName, session.StreamName)
@@ -165,7 +183,7 @@ func (sm *ServerManager) DelRTMPSubSessionCB(session *rtmp.ServerSession) {
 }
 
 // ServerObserver of httpflv.Server
-func (sm *ServerManager) NewHTTPFLVSubSessionCB(session *httpflv.SubSession) bool {
+func (sm *ServerManager) OnNewHTTPFLVSubSession(session *httpflv.SubSession) bool {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	group := sm.getOrCreateGroup(session.AppName, session.StreamName)
@@ -174,7 +192,7 @@ func (sm *ServerManager) NewHTTPFLVSubSessionCB(session *httpflv.SubSession) boo
 }
 
 // ServerObserver of httpflv.Server
-func (sm *ServerManager) DelHTTPFLVSubSessionCB(session *httpflv.SubSession) {
+func (sm *ServerManager) OnDelHTTPFLVSubSession(session *httpflv.SubSession) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	group := sm.getGroup(session.AppName, session.StreamName)
@@ -183,7 +201,20 @@ func (sm *ServerManager) DelHTTPFLVSubSessionCB(session *httpflv.SubSession) {
 	}
 }
 
-func (sm *ServerManager) check() {
+// ServerObserver of rtsp.Server
+func (sm *ServerManager) OnNewRTSPPubSession(session *rtsp.PubSession) {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	group := sm.getOrCreateGroup("", session.StreamName)
+	group.AddRTSPPubSession(session)
+}
+
+// ServerObserver of rtsp.Server
+func (sm *ServerManager) OnDelRTSPPubSession(session *rtsp.PubSession) {
+	// TODO chef: impl me
+}
+
+func (sm *ServerManager) iterateGroup() {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	for k, group := range sm.groupMap {
@@ -191,17 +222,21 @@ func (sm *ServerManager) check() {
 			nazalog.Infof("erase empty group manager. [%s]", group.UniqueKey)
 			group.Dispose()
 			delete(sm.groupMap, k)
+			continue
 		}
+
+		group.Tick()
 	}
 }
 
 func (sm *ServerManager) getOrCreateGroup(appName string, streamName string) *Group {
 	group, exist := sm.groupMap[streamName]
 	if !exist {
-		group = NewGroup(appName, streamName, sm.config.RTMPConfig.GOPNum, sm.config.HTTPFLVConfig.GOPNum, sm.config.HLSConfig.MuxerConfig)
+		group = NewGroup(appName, streamName)
 		sm.groupMap[streamName] = group
+
+		go group.RunLoop()
 	}
-	go group.RunLoop()
 	return group
 }
 

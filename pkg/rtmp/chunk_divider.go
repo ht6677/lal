@@ -13,6 +13,7 @@ package rtmp
 // 将message切割成chunk
 
 import (
+	"github.com/q191201771/lal/pkg/base"
 	"github.com/q191201771/naza/pkg/bele"
 )
 
@@ -24,18 +25,19 @@ var defaultChunkDivider = ChunkDivider{
 	localChunkSize: LocalChunkSize,
 }
 
-// @param header 注意，内部使用 TimestampAbs 而非 Timestamp
-func Message2Chunks(message []byte, header *Header) []byte {
+// @param  header 注意，内部使用TimestampAbs而非Timestamp
+// @return 返回的内存块由内部申请，不依赖参数<message>内存块
+func Message2Chunks(message []byte, header *base.RTMPHeader) []byte {
 	return defaultChunkDivider.Message2Chunks(message, header)
 }
 
 // TODO chef: 新的 message 的第一个 chunk 始终使用 fmt0 格式，没有参考前一个 message
-func (d *ChunkDivider) Message2Chunks(message []byte, header *Header) []byte {
+func (d *ChunkDivider) Message2Chunks(message []byte, header *base.RTMPHeader) []byte {
 	return message2Chunks(message, header, nil, d.localChunkSize)
 }
 
 // @param 返回头的大小
-func calcHeader(header *Header, prevHeader *Header, out []byte) int {
+func calcHeader(header *base.RTMPHeader, prevHeader *base.RTMPHeader, out []byte) int {
 	var index int
 
 	// 计算fmt和timestamp
@@ -52,7 +54,13 @@ func calcHeader(header *Header, prevHeader *Header, out []byte) int {
 					fmt++
 				}
 			}
-			timestamp = header.TimestampAbs - prevHeader.TimestampAbs
+			if header.TimestampAbs > maxTimestampInMessageHeader {
+				// 将数据打包成rtmp chunk发送给vlc，时间戳超过3字节最大范围时，
+				// vlc认为fmt0和fmt3两种格式，都需要携带扩展时间戳字段，并且该时间戳字段必须使用绝对时间戳。
+				timestamp = header.TimestampAbs
+			} else {
+				timestamp = header.TimestampAbs - prevHeader.TimestampAbs
+			}
 		} else {
 			timestamp = header.TimestampAbs
 		}
@@ -111,7 +119,7 @@ func calcHeader(header *Header, prevHeader *Header, out []byte) int {
 	return index
 }
 
-func message2Chunks(message []byte, header *Header, prevHeader *Header, chunkSize int) []byte {
+func message2Chunks(message []byte, header *base.RTMPHeader, prevHeader *base.RTMPHeader, chunkSize int) []byte {
 	//if header.CSID < minCSID || header.CSID > maxCSID {
 	//	return nil, ErrRTMP
 	//}

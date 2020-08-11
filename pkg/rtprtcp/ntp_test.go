@@ -6,17 +6,19 @@
 //
 // Author: Chef (191201771@qq.com)
 
-package main
+package rtprtcp_test
 
 import (
-	"github.com/q191201771/lal/pkg/rtsp"
+	"testing"
+	"time"
+
+	"github.com/q191201771/lal/pkg/rtprtcp"
 	"github.com/q191201771/naza/pkg/nazalog"
 )
 
-func main() {
-	s := rtsp.NewServer(":5544")
-	err := s.Listen()
-	nazalog.Assert(nil, err)
-	err = s.RunLoop()
-	nazalog.Error(err)
+func TestMSWLSW2UnixNano(t *testing.T) {
+	u := rtprtcp.MSWLSW2UnixNano(3805600902, 2181843386)
+	nazalog.Debug(u)
+	tt := time.Unix(int64(u/1e9), int64(u%1e9))
+	nazalog.Debug(tt.String())
 }

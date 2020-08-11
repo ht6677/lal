@@ -9,6 +9,7 @@ if [ ! -d ${ROOT_DIR}/${OUT_DIR} ]; then
   mkdir ${ROOT_DIR}/${OUT_DIR}
 fi
 
+GitTag=`git tag --sort=version:refname | tail -n 1`
 GitCommitLog=`git log --pretty=oneline -n 1`
 # 将 log 原始字符串中的单引号替换成双引号
 GitCommitLog=${GitCommitLog//\'/\"}
@@ -17,26 +18,27 @@ GitStatus=`git status -s`
 BuildTime=`date +'%Y.%m.%d.%H%M%S'`
 BuildGoVersion=`go version`
 
+# 如果读取到git信息，最新tag是v开头，则修改代码 pkg/base/version.go 中的版本信息
+if [[ ${GitTag} == v* ]]; then
+  gsed -i "/^var LALVersion/cvar LALVersion = \"${GitTag}\"" pkg/base/version.go
+fi
+
 LDFlags=" \
+    -X 'github.com/q191201771/naza/pkg/bininfo.GitTag=${GitTag}' \
     -X 'github.com/q191201771/naza/pkg/bininfo.GitCommitLog=${GitCommitLog}' \
     -X 'github.com/q191201771/naza/pkg/bininfo.GitStatus=${GitStatus}' \
     -X 'github.com/q191201771/naza/pkg/bininfo.BuildTime=${BuildTime}' \
     -X 'github.com/q191201771/naza/pkg/bininfo.BuildGoVersion=${BuildGoVersion}' \
 "
 
-for file in `ls ${ROOT_DIR}/app`
-do
-  if [ -d ${ROOT_DIR}/app/${file} ]; then
-    echo "build" ${ROOT_DIR}/app/${file} "..."
-    cd ${ROOT_DIR}/app/${file} && go build -ldflags "$LDFlags" -o ${ROOT_DIR}/${OUT_DIR}/${file}
-  fi
-done
+echo "build" ${ROOT_DIR}/app/lalserver "..."
+cd ${ROOT_DIR}/app/lalserver && go build -ldflags "$LDFlags" -o ${ROOT_DIR}/${OUT_DIR}/lalserver
 
-for file in `ls ${ROOT_DIR}/demo`
+for file in `ls ${ROOT_DIR}/app/demo`
 do
-  if [ -d ${ROOT_DIR}/demo/${file} ]; then
-    echo "build" ${ROOT_DIR}/demo/${file} "..."
-    cd ${ROOT_DIR}/demo/${file} && go build -ldflags "$LDFlags" -o ${ROOT_DIR}/${OUT_DIR}/${file}
+  if [ -d ${ROOT_DIR}/app/demo/${file} ]; then
+    echo "build" ${ROOT_DIR}/app/demo/${file} "..."
+    cd ${ROOT_DIR}/app/demo/${file} && go build -ldflags "$LDFlags" -o ${ROOT_DIR}/${OUT_DIR}/${file}
   fi
 done
 

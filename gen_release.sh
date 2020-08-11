@@ -5,7 +5,7 @@
 ROOT_DIR=`pwd`
 OUT_DIR=release
 
-v=`git tag | tail -n 1`
+v=`git tag --sort=version:refname | tail -n 1`
 prefix=lal_${v}_
 
 rm -rf ${ROOT_DIR}/${OUT_DIR}
@@ -20,10 +20,11 @@ echo ${v} >> ${ROOT_DIR}/${OUT_DIR}/${prefix}linux/VERSION.txt
 echo ${v} >> ${ROOT_DIR}/${OUT_DIR}/${prefix}macos/VERSION.txt
 echo ${v} >> ${ROOT_DIR}/${OUT_DIR}/${prefix}windows/VERSION.txt
 
-cp conf/lalserver.conf.json ${ROOT_DIR}/${OUT_DIR}/${prefix}linux/conf
-cp conf/lalserver.conf.json ${ROOT_DIR}/${OUT_DIR}/${prefix}macos/conf
-cp conf/lalserver.conf.json ${ROOT_DIR}/${OUT_DIR}/${prefix}windows/conf
+cp conf/lalserver.conf.json conf/edge.conf.json ${ROOT_DIR}/${OUT_DIR}/${prefix}linux/conf
+cp conf/lalserver.conf.json conf/edge.conf.json ${ROOT_DIR}/${OUT_DIR}/${prefix}macos/conf
+cp conf/lalserver.conf.json conf/edge.conf.json ${ROOT_DIR}/${OUT_DIR}/${prefix}windows/conf
 
+GitTag=`git tag --sort=version:refname | tail -n 1`
 GitCommitLog=`git log --pretty=oneline -n 1`
 # 将 log 原始字符串中的单引号替换成双引号
 GitCommitLog=${GitCommitLog//\'/\"}
@@ -33,6 +34,7 @@ BuildTime=`date +'%Y.%m.%d.%H%M%S'`
 BuildGoVersion=`go version`
 
 LDFlags=" \
+    -X 'github.com/q191201771/naza/pkg/bininfo.GitTag=${GitTag}' \
     -X 'github.com/q191201771/naza/pkg/bininfo.GitCommitLog=${GitCommitLog}' \
     -X 'github.com/q191201771/naza/pkg/bininfo.GitStatus=${GitStatus}' \
     -X 'github.com/q191201771/naza/pkg/bininfo.BuildTime=${BuildTime}' \

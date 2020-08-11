@@ -9,7 +9,10 @@
 package rtmp
 
 type PushSession struct {
+	IsFresh bool
+
 	core *ClientSession
+	//status uint32
 }
 
 type PushSessionOption struct {
@@ -32,6 +35,7 @@ func NewPushSession(modOptions ...ModPushSessionOption) *PushSession {
 		fn(&opt)
 	}
 	return &PushSession{
+		IsFresh: true,
 		core: NewClientSession(CSTPushSession, func(option *ClientSessionOption) {
 			option.ConnectTimeoutMS = opt.ConnectTimeoutMS
 			option.DoTimeoutMS = opt.PushTimeoutMS
@@ -40,7 +44,8 @@ func NewPushSession(modOptions ...ModPushSessionOption) *PushSession {
 	}
 }
 
-// 阻塞直到收到服务端返回的 rtmp publish 对应结果的信令或发生错误
+// 建立rtmp publish连接
+// 阻塞直到收到服务端返回的rtmp publish对应结果的信令，或发生错误
 func (s *PushSession) Push(rawURL string) error {
 	return s.core.doWithTimeout(rawURL)
 }
@@ -57,4 +62,10 @@ func (s *PushSession) Dispose() {
 	s.core.Dispose()
 }
 
-// TODO chef: 建议 ClientSession WaitLoop 接口也可以暴露出来
+func (s *PushSession) Done() <-chan error {
+	return s.core.Done()
+}
+
+func (s *PushSession) UniqueKey() string {
+	return s.core.UniqueKey
+}
