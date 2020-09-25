@@ -13,6 +13,8 @@ import (
 	"errors"
 	"io/ioutil"
 
+	"github.com/q191201771/lal/pkg/httpflv"
+
 	"github.com/q191201771/lal/pkg/hls"
 	"github.com/q191201771/naza/pkg/nazajson"
 	"github.com/q191201771/naza/pkg/nazalog"
@@ -22,6 +24,7 @@ type Config struct {
 	RTMPConfig      RTMPConfig      `json:"rtmp"`
 	HTTPFLVConfig   HTTPFLVConfig   `json:"httpflv"`
 	HLSConfig       HLSConfig       `json:"hls"`
+	HTTPTSConfig    HTTPTSConfig    `json:"httpts"`
 	RTSPConfig      RTSPConfig      `json:"rtsp"`
 	RelayPushConfig RelayPushConfig `json:"relay_push"`
 	RelayPullConfig RelayPullConfig `json:"relay_pull"`
@@ -37,13 +40,16 @@ type RTMPConfig struct {
 }
 
 type HTTPFLVConfig struct {
+	httpflv.ServerConfig
+	GOPNum int `json:"gop_num"`
+}
+
+type HTTPTSConfig struct {
 	Enable        bool   `json:"enable"`
 	SubListenAddr string `json:"sub_listen_addr"`
-	GOPNum        int    `json:"gop_num"`
 }
 
 type HLSConfig struct {
-	Enable        bool   `json:"enable"`
 	SubListenAddr string `json:"sub_listen_addr"`
 	hls.MuxerConfig
 }
@@ -84,9 +90,15 @@ func LoadConf(confFile string) (*Config, error) {
 	}
 
 	// 检查配置必须项
-	if !j.Exist("rtmp") || !j.Exist("httpflv") || !j.Exist("hls") || !j.Exist("rtsp") ||
-		!j.Exist("relay_push") || !j.Exist("relay_pull") ||
-		!j.Exist("pprof") || !j.Exist("log") {
+	if !j.Exist("rtmp") ||
+		!j.Exist("httpflv") ||
+		!j.Exist("hls") ||
+		!j.Exist("httpts") ||
+		!j.Exist("rtsp") ||
+		!j.Exist("relay_push") ||
+		!j.Exist("relay_pull") ||
+		!j.Exist("pprof") ||
+		!j.Exist("log") {
 		return &config, errors.New("missing key field in config file")
 	}
 

@@ -17,7 +17,7 @@ import (
 	"github.com/q191201771/naza/pkg/nazalog"
 )
 
-// Annex B:
+// AnnexB:
 //   keywords: MPEG-2 transport stream, ElementaryStream(ES),
 //   nalu with start code.
 //   e.g. ts
@@ -62,7 +62,7 @@ const (
 	NALUTypeSEI      uint8 = 6
 	NALUTypeSPS      uint8 = 7
 	NALUTypePPS      uint8 = 8
-	NALUTypeAUD      uint8 = 9
+	NALUTypeAUD      uint8 = 9 // Access Unit Delimiter
 )
 
 const (
@@ -443,6 +443,8 @@ func ParseSPS(payload []byte) (Context, error) {
 	if sps.PicOrderCntType == 0 {
 		sps.Log2MaxPicOrderCntLsb, err = br.ReadGolomb()
 		sps.Log2MaxPicOrderCntLsb += 4
+	} else if sps.PicOrderCntType == 2 {
+		// noop
 	} else {
 		nazalog.Debugf("not impl yet. sps.PicOrderCntType=%d", sps.PicOrderCntType)
 		return Context{}, ErrAVC

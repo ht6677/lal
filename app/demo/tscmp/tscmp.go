@@ -13,19 +13,21 @@ import (
 	"encoding/hex"
 	"io/ioutil"
 
+	"github.com/q191201771/lal/pkg/mpegts"
+
 	"github.com/q191201771/lal/pkg/hls"
 	"github.com/q191201771/naza/pkg/nazalog"
 )
 
 // 临时小工具，比较两个TS文件。注意，该程序还没有写完。
 
-var filename1 = "/Volumes/Data/tmp/lal-4.ts"
-var filename2 = "/Volumes/Data/tmp/nrm-4.ts"
+var filename1 = "/tmp/lal/hls/innertest/innertest-7.ts"
+var filename2 = "/tmp/lal/hls/innertest.bak/innertest-7.ts"
 
 func skipPacketFilter(tss [][]byte) (ret [][]byte) {
 	for _, ts := range tss {
-		h := hls.ParseTSPacketHeader(ts)
-		if h.Pid == hls.PidAudio {
+		h := mpegts.ParseTSPacketHeader(ts)
+		if h.Pid == mpegts.PidAudio {
 			continue
 		}
 		ret = append(ret, ts)
@@ -34,16 +36,16 @@ func skipPacketFilter(tss [][]byte) (ret [][]byte) {
 }
 
 func parsePacket(packet []byte) {
-	h := hls.ParseTSPacketHeader(packet)
+	h := mpegts.ParseTSPacketHeader(packet)
 	nazalog.Debugf("%+v", h)
 	index := 4
 
-	var adaptation hls.TSPacketAdaptation
+	var adaptation mpegts.TSPacketAdaptation
 	switch h.Adaptation {
-	case hls.AdaptationFieldControlNo:
+	case mpegts.AdaptationFieldControlNo:
 		// noop
-	case hls.AdaptationFieldControlFollowed:
-		adaptation = hls.ParseTSPacketAdaptation(packet[4:])
+	case mpegts.AdaptationFieldControlFollowed:
+		adaptation = mpegts.ParseTSPacketAdaptation(packet[4:])
 		index++
 	default:
 		nazalog.Warn(h.Adaptation)
@@ -51,7 +53,7 @@ func parsePacket(packet []byte) {
 	index += int(adaptation.Length)
 
 	if h.PayloadUnitStart == 1 && h.Pid == 256 {
-		pes, length := hls.ParsePES(packet[index:])
+		pes, length := mpegts.ParsePES(packet[index:])
 		nazalog.Debugf("%+v, %d", pes, length)
 	}
 }
@@ -63,8 +65,8 @@ func main() {
 	content2, err := ioutil.ReadFile(filename2)
 	nazalog.Assert(nil, err)
 
-	tss1 := hls.SplitFragment2TSPackets(content1)
-	tss2 := hls.SplitFragment2TSPackets(content2)
+	tss1, _ := hls.SplitFragment2TSPackets(content1)
+	tss2, _ := hls.SplitFragment2TSPackets(content2)
 
 	nazalog.Debugf("num of ts1=%d, num of ts2=%d", len(tss1), len(tss2))
 
@@ -85,7 +87,6 @@ func main() {
 			parsePacket(tss2[i])
 			nazalog.Debugf("\n%s", hex.Dump(tss1[i]))
 			nazalog.Debugf("\n%s", hex.Dump(tss2[i]))
-			//break
 		}
 	}
 

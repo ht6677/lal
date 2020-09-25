@@ -14,7 +14,6 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"syscall"
 	"testing"
 	"time"
 
@@ -40,6 +39,7 @@ import (
 // TODO chef:
 // - 加上relay push
 // - 加上relay pull
+// - 加上rtspserver的测试
 
 var (
 	tt *testing.T
@@ -77,6 +77,8 @@ func InnerTestEntry(t *testing.T) {
 
 	config, err := logic.LoadConf(confFile)
 	assert.Equal(t, nil, err)
+
+	_ = os.RemoveAll(config.HLSConfig.OutPath)
 
 	pushURL = fmt.Sprintf("rtmp://127.0.0.1%s/live/innertest", config.RTMPConfig.Addr)
 	httpflvPullURL = fmt.Sprintf("http://127.0.0.1%s/live/innertest.flv", config.HTTPFLVConfig.SubListenAddr)
@@ -155,7 +157,9 @@ func InnerTestEntry(t *testing.T) {
 	rtmpPullSession.Dispose()
 	httpFLVWriter.Dispose()
 	rtmpWriter.Dispose()
-	_ = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
+	// 由于windows没有信号，会导致编译错误，所以直接调用Dispose
+	//_ = syscall.Kill(syscall.Getpid(), syscall.SIGUSR1)
+	logic.Dispose()
 
 	nazalog.Debugf("count. %d %d %d", fileTagCount.Load(), httpflvPullTagCount.Load(), rtmpPullTagCount.Load())
 	compareFile()
@@ -165,7 +169,7 @@ func InnerTestEntry(t *testing.T) {
 	err = filebatch.Walk(
 		fmt.Sprintf("%sinnertest", config.HLSConfig.OutPath),
 		false,
-		"",
+		".ts",
 		func(path string, info os.FileInfo, content []byte, err error) []byte {
 			allContent = append(allContent, content...)
 			fileNum++
@@ -173,9 +177,9 @@ func InnerTestEntry(t *testing.T) {
 		})
 	assert.Equal(t, nil, err)
 	allContentMD5 := nazamd5.MD5(allContent)
-	assert.Equal(t, 52, fileNum)
-	assert.Equal(t, 7350158, len(allContent))
-	assert.Equal(t, "27f95371ea1f747cece1db3854554c9f", allContentMD5)
+	assert.Equal(t, 8, fileNum)
+	assert.Equal(t, 2219152, len(allContent))
+	assert.Equal(t, "48db6251d40c271fd11b05650f074e0f", allContentMD5)
 }
 
 func compareFile() {

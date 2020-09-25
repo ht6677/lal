@@ -3,8 +3,6 @@
 <img alt="Wide" src="https://pengrl.com/images/other/lallogo.png">
 </a>
 <br>
-Go live stream lib/client/server and much more.
-<br><br>
 <a title="TravisCI" target="_blank" href="https://www.travis-ci.org/q191201771/lal"><img src="https://www.travis-ci.org/q191201771/lal.svg?branch=master"></a>
 <a title="codecov" target="_blank" href="https://codecov.io/gh/q191201771/lal"><img src="https://codecov.io/gh/q191201771/lal/branch/master/graph/badge.svg?style=flat-square"></a>
 <a title="goreportcard" target="_blank" href="https://goreportcard.com/report/github.com/q191201771/lal"><img src="https://goreportcard.com/badge/github.com/q191201771/lal?style=flat-square"></a>
@@ -19,28 +17,44 @@ Go live stream lib/client/server and much more.
 <a title="language" target="_blank" href="https://github.com/q191201771/lal"><img src="https://img.shields.io/github/languages/count/q191201771/lal.svg?style=flat-square"></a>
 <a title="toplanguage" target="_blank" href="https://github.com/q191201771/lal"><img src="https://img.shields.io/github/languages/top/q191201771/lal.svg?style=flat-square"></a>
 <a title="godoc" target="_blank" href="https://godoc.org/github.com/q191201771/lal"><img src="http://img.shields.io/badge/godoc-reference-5272B4.svg?style=flat-square"></a>
-<br><br>
-<a title="watcher" target="_blank" href="https://github.com/q191201771/lal/watchers"><img src="https://img.shields.io/github/watchers/q191201771/lal.svg?label=Watchers&style=social"></a>&nbsp;&nbsp;
-<a title="star" target="_blank" href="https://github.com/q191201771/lal/stargazers"><img src="https://img.shields.io/github/stars/q191201771/lal.svg?label=Stars&style=social"></a>&nbsp;&nbsp;
-<a title="fork" target="_blank" href="https://github.com/q191201771/lal/network/members"><img src="https://img.shields.io/github/forks/q191201771/lal.svg?label=Forks&style=social"></a>&nbsp;&nbsp;
+<br>
 </p>
 
 ---
 
-lalserver已支持：
+**`app/lalserver`服务器支持的协议：**
 
-| 流连接类型 | rtmp | rtsp | hls | httpflv |
-| - | - | - | - | - |
-| pub推流        | ✔    | ✔ | - | - |
-| sub拉流        | ✔    | - | ✔ | ✔ |
-| relay push转推 | ✔    | - | - | - |
-| relay push转拉 | ✔    | - | - | - |
+| - | sub rtmp | sub http(s)-flv | sub http-ts | sub hls | sub rtsp | relay push rtmp |
+| - | - | - | - | - | - | - |
+| pub rtmp        | ✔ | ✔ | ✔ | ✔ | - | ✔ |
+| pub rtsp        | ✔ | ✔ | ✔ | ✔ | - | ✔ |
+| relay pull rtmp | ✔ | ✔ | ✔ | ✔ | - | . |
 
-| 编码类型 | rtmp | rtsp | hls | httpflv |
-| - | - | - | - | - |
-| aac       | ✔ | ✔ | ✔ | ✔ |
-| avc/h264  | ✔ | ✔ | ✔ | ✔ |
-| hevc/h265 | ✔ | - | - | ✔ |
+| 编码类型 | rtmp | rtsp | hls | http(s)-flv | http-ts |
+| - | - | - | - | - | - |
+| aac       | ✔ | ✔ | ✔ | ✔ | ✔ |
+| avc/h264  | ✔ | ✔ | ✔ | ✔ | ✔ |
+| hevc/h265 | ✔ | - | - | ✔ | - |
+
+表格含义见： [《流媒体传输连接类型之session client, server, pub, sub, push, pull》](https://pengrl.com/p/20080)
+
+**`app/lalserver`功能特性：**
+
+- (依托Go语言)：支持`(linux/macOS/windows)`多平台开发、调试、运行。支持交叉编译。生成的可执行文件(无任何库依赖)可独立运行。(开放源码的同时)，提供各平台可执行文件，可(免编译)直接运行
+- 高性能，多核多线程扩展
+- 支持RTMP/RTSP/HTTP-FLV/HTTP-TS/HLS多种封装协议，不同封装协议支持相互转换
+- 支持HTTPS-FLV
+- HTTP类型的流支持CORS跨域请求
+- 支持HTTP服务器(比如HLS切片文件可直接播放，不需要额外的HTTP文件服务器)
+- 支持HLS录制(HLS直播与录制可同时开启)
+- 视频支持H264/AVC，H265/HEVC格式
+- 音频支持AAC格式
+- 支持静态回源、静态转推，可搭建基础的集群
+- 支持Gop缓冲，用于秒开播放
+
+除了lalserver，还提供一些基于lal开发的demo： [《lal/app/demo》](https://github.com/q191201771/lal/blob/master/app/demo/README.md)
+
+<img alt="Wide" src="https://pengrl.com/images/other/lalmodule.jpg?date=0829">
 
 ### 编译，运行，体验功能
 
@@ -49,21 +63,13 @@ lalserver已支持：
 方式1，从源码自行编译
 
 ```shell
-# 不使用 Go module
-$go get -u github.com/q191201771/lal
-$cd $GOPATH/src/github.com/q191201771/lal
-$./build.sh
-
-# 使用 Go module
-$export GOPROXY=https://goproxy.cn,https://goproxy.io
-$git clone https://github.com/q191201771/lal.git
-$cd lal
-$./build.sh
+$export GO111MODULE=on && export GOPROXY=https://goproxy.cn,https://goproxy.io,direct
+$make
 ```
 
 方式2，直接下载编译好的二进制可执行文件
 
-上[最新发布版本页面](https://github.com/q191201771/lal/releases/latest)，下载对应平台编译好的二进制可执行文件的zip压缩包。
+[点我打开《github lal最新release版本页面》](https://github.com/q191201771/lal/releases/latest)，下载对应平台编译好的二进制可执行文件的zip压缩包。
 
 #### 运行
 
@@ -73,13 +79,11 @@ $./bin/lalserver -c conf/lalserver.conf.json
 
 #### 体验功能
 
-快速体验lalserver服务器见： [常见推拉流客户端软件的使用方式](https://pengrl.com/p/20051/)
+快速体验lalserver服务器见： [《常见推拉流客户端软件的使用方式》](https://pengrl.com/p/20051/)
 
-lalserver详细配置见： [配置注释文档](https://github.com/q191201771/lal/blob/master/conf/lalserver.conf.json.brief)
+lalserver详细配置见： [《配置注释文档》](https://github.com/q191201771/lal/blob/master/conf/lalserver.conf.json.brief)
 
-### 仓库目录框架
-
-<img alt="Wide" src="https://pengrl.com/images/other/lalmodule.jpg">
+### 源码框架
 
 <br>
 
@@ -91,19 +95,18 @@ lalserver详细配置见： [配置注释文档](https://github.com/q191201771/l
 
 目前唯一的第三方依赖（我自己写的Go基础库）： [github.com/q191201771/naza](https://github.com/q191201771/naza)
 
-### 文档
-
-* [流媒体音视频相关的点我](https://pengrl.com/categories/%E6%B5%81%E5%AA%92%E4%BD%93%E9%9F%B3%E8%A7%86%E9%A2%91/)
-* [Go语言相关的点我](https://pengrl.com/categories/Go/)
-* [我写的其他文章](https://pengrl.com/all/)
-
 ### 联系我
 
-扫码加我微信（微信号： q191201771），进行技术交流或扯淡。微信群已开放，加我好友后可拉进群。
+- 个人微信号： q191201771
+- 个人QQ号： 191201771
+- 微信群： 加我微信好友后，告诉我拉你进群
+- QQ群： 1090510973
 
-也欢迎大家通过github issue交流，提PR贡献代码。提PR前请先阅读：[yoko版本PR规范](https://pengrl.com/p/20070/)
+欢迎任何技术和非技术的交流。
 
-<img src="https://pengrl.com/images/yoko_vx.jpeg" width="180" height="180" />
+目前lal正在收集新一轮需求中。
+
+并且，lal也十分欢迎开源贡献者的加入。提PR前请先阅读：[《yoko版本PR规范》](https://pengrl.com/p/20070/)
 
 ### 性能测试，测试过的第三方客户端
 
@@ -111,7 +114,7 @@ lalserver详细配置见： [配置注释文档](https://github.com/q191201771/l
 
 ### 项目star趋势图
 
-觉得这个repo还不错，就点个star支持一下吧 :)
+觉得项目还不错，就点个star支持一下吧 :)
 
 [![Stargazers over time](https://starchart.cc/q191201771/lal.svg)](https://starchart.cc/q191201771/lal)
 

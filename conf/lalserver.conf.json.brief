@@ -5,8 +5,12 @@
     "gop_num": 2      // RTMP拉流的GOP缓存数量，加速秒开
   },
   "httpflv": {
-    "enable": true,             // 是否开启HTTP-FLV服务的监听
-    "sub_listen_addr": ":8080", // HTTP-FLV拉流地址
+    "enable": true,                       // 是否开启HTTP-FLV服务的监听
+    "sub_listen_addr": ":8080",           // HTTP-FLV拉流地址
+    "enable_https": true,                 // 是否开启HTTPS-FLV监听
+    "https_addr": ":4433",                // HTTPS-FLV拉流地址
+    "https_cert_file": "./conf/cert.pem", // cert文件地址
+    "https_key_file": "./conf/key.pem",   // key文件地址
     "gop_num": 2
   },
   "hls": {
@@ -15,6 +19,10 @@
     "out_path": "/tmp/lal/hls/",  // HLS文件保存根目录
     "fragment_duration_ms": 3000, // 单个TS文件切片时长，单位毫秒
     "fragment_num": 6             // M3U8文件列表中TS文件的数量
+  },
+  "httpts": {
+    "enable": true, // 是否开启HTTP-TS服务的监听。注意，这并不是HLS中的TS，而是在一条HTTP长连接上持续性传输TS流
+    "sub_listen_addr": ":8082" // HTTP-TS拉流地址
   },
   "rtsp": {
     "enable": true, // 是否开启rtsp服务的监听，目前只支持rtsp推流

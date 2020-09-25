@@ -43,6 +43,8 @@ func ParseMetadata(b []byte) (ObjectPairArray, error) {
 // - author
 // - version
 //
+// @param width        如果为-1，则metadata中不写入width
+// @param height       如果为-1，则metadata中不写入height
 // @param audiocodecid AAC 10
 // @param videocodecid AVC 7
 //
@@ -53,14 +55,18 @@ func BuildMetadata(width int, height int, audiocodecid int, videocodecid int) ([
 	}
 
 	var opa ObjectPairArray
-	opa = append(opa, ObjectPair{
-		Key:   "width",
-		Value: width,
-	})
-	opa = append(opa, ObjectPair{
-		Key:   "height",
-		Value: height,
-	})
+	if width != -1 {
+		opa = append(opa, ObjectPair{
+			Key:   "width",
+			Value: width,
+		})
+	}
+	if height != -1 {
+		opa = append(opa, ObjectPair{
+			Key:   "height",
+			Value: height,
+		})
+	}
 	opa = append(opa, ObjectPair{
 		Key:   "audiocodecid",
 		Value: audiocodecid,
@@ -72,7 +78,7 @@ func BuildMetadata(width int, height int, audiocodecid int, videocodecid int) ([
 
 	opa = append(opa, ObjectPair{
 		Key:   "version",
-		Value: base.LALFullInfo,
+		Value: base.LALRTMPBuildMetadataEncoder,
 	})
 
 	if err := AMF0.WriteObject(buf, opa); err != nil {

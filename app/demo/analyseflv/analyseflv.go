@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/q191201771/naza/pkg/nazastring"
+
 	"github.com/q191201771/lal/pkg/rtmp"
 
 	"github.com/q191201771/lal/pkg/avc"
@@ -166,8 +168,17 @@ func analysisVideoTag(tag httpflv.Tag) {
 		if tag.IsAVCKeySeqHeader() {
 			t = typeAVC
 			buf.WriteString(" [AVC SeqHeader] ")
+			if _, _, err := avc.ParseSPSPPSFromSeqHeader(tag.Raw[11:]); err != nil {
+				buf.WriteString(" parse sps pps failed.")
+			}
 		} else if tag.IsHEVCKeySeqHeader() {
 			t = typeHEVC
+			//nazalog.Debugf("%s", nazastring.DumpSliceByte(tag.Raw[11:]))
+			vps, sps, pps, _ := hevc.ParseVPSSPSPPSFromSeqHeader(tag.Raw[11:])
+			nazalog.Debugf("%s", nazastring.DumpSliceByte(vps))
+			nazalog.Debugf("%s", nazastring.DumpSliceByte(sps))
+			nazalog.Debugf("%s", nazastring.DumpSliceByte(pps))
+			//nazalog.Debugf("%s %s %s %+v", hex.Dump(vps), hex.Dump(sps), hex.Dump(pps), err)
 			buf.WriteString(" [HEVC SeqHeader] ")
 		}
 	} else {
@@ -219,6 +230,7 @@ func analysisVideoTag(tag httpflv.Tag) {
 
 // 注意，SEI的内容是自定义格式，解析的代码不具有通用性
 func SEIDelayMS(seiNALU []byte) int {
+	//nazalog.Debugf("sei: %s", hex.Dump(seiNALU))
 	items := strings.Split(string(seiNALU), ":")
 	if len(items) != 3 {
 		return -1

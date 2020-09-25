@@ -36,11 +36,20 @@ func (obs *Obs) OnSPSPPS(sps, pps []byte) {
 	_, _ = avcFp.Write([]byte{0, 0, 0, 1})
 	_, _ = avcFp.Write(pps)
 }
+func (obs *Obs) OnVPSSPSPPS(vps, sps, pps []byte) {
+	_, _ = avcFp.Write([]byte{0, 0, 0, 1})
+	_, _ = avcFp.Write(vps)
+	_, _ = avcFp.Write([]byte{0, 0, 0, 1})
+	_, _ = avcFp.Write(sps)
+	_, _ = avcFp.Write([]byte{0, 0, 0, 1})
+	_, _ = avcFp.Write(pps)
+}
 func (obs *Obs) OnAVPacket(pkt base.AVPacket) {
 	nazalog.Debugf("type=%d, ts=%d, len=%d", pkt.PayloadType, pkt.Timestamp, len(pkt.Payload))
 
 	switch pkt.PayloadType {
 	case base.RTPPacketTypeAVC:
+		// TODO chef: 由于存在多nalu情况，需要进行拆分
 		_, _ = avcFp.Write([]byte{0, 0, 0, 1})
 		_, _ = avcFp.Write(pkt.Payload)
 		_ = avcFp.Sync()
@@ -52,7 +61,7 @@ func (obs *Obs) OnAVPacket(pkt base.AVPacket) {
 	}
 }
 
-func (obs *Obs) OnNewRTSPPubSession(session *rtsp.PubSession) {
+func (obs *Obs) OnNewRTSPPubSession(session *rtsp.PubSession) bool {
 	nazalog.Debugf("OnNewRTSPPubSession. %+v", session)
 
 	var err error
@@ -63,6 +72,8 @@ func (obs *Obs) OnNewRTSPPubSession(session *rtsp.PubSession) {
 	nazalog.Assert(nil, err)
 
 	session.SetObserver(obs)
+
+	return true
 }
 
 func (obs *Obs) OnDelRTSPPubSession(session *rtsp.PubSession) {

@@ -1,3 +1,38 @@
+#### v0.15.1
+
+- [fix] 配置文件没有开启HTTPS-FLV时，错误使用nil对象导致崩溃
+
+#### v0.15.0
+
+- [feat] 支持HTTP-TS sub长连接拉流
+- [feat] 支持HTTPS-FLV
+- [feat] 支持跨域请求：HTTP-FLV sub, HTTP-TS sub, HLS这几个HTTP类型的拉流
+- [feat] 支持HLS录制与回放（在原有HLS直播的基础之上）
+- [fix] 修复record m3u8文件无法更新的问题
+- [fix] 修复rtsp pub无法接收IPv6 RTP数据的问题
+- [fix] 修复windows平台编译失败的问题（单元测试package innertest中使用syscall.Kill导致）
+- [feat] demo pullrtmp2hls: 新增demo，从远端服务器拉取rtmp流，存储为本地hls文件
+- [feat] 新增package alpha/stun，学习stun协议
+- [feat] 部分rtsp pub支持h265的代码，未完全完成
+
+#### v0.14.0
+
+- [feat] lalserver实现rtsp pub功能。支持接收rtsp(rtp/rtcp)推流，转换为rtmp,httpflv,hls格式供拉流使用
+- [feat] hls.Muxer释放时，向m3u8文件写入`#EXT-X-ENDLIST`
+- [refactor] 新增package sdp，rtprtcp
+- [refactor] 新增package base，整理lal项目中各package的依赖关系
+- [refactor] 新增package mpegts，将部分package hls中代码抽离出来
+- [refactor] 重写package aac
+- [feat] 在各协议的标准字段中写入lal版本信息
+- [fix] group Dispose主动释放所有内部资源，与中继转推回调回来的消息，做同步处理，避免崩溃
+- [fix] package avc: 修复解析sps中PicOrderCntType为2无法解析的bug
+- [refactor] 重命名app/demo中的一些程序名
+- [feat] package rtmp: 增加BuildMetadata函数
+- [test] 使用wontcry30s.flv作为单元测试用的音视频文件
+- [chore] 使用Makefile管理build, test
+- [doc] 增加文档: https://pengrl.com/p/20080/
+- [log] 整理所有session的日志
+
 #### v0.13.0
 
 - [feat] package httpflv: pull拉流时，携带url参数

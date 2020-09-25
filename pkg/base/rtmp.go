@@ -19,7 +19,12 @@ const (
 	RTMPTypeIDUserControl        uint8 = 4
 	RTMPTypeIDWinAckSize         uint8 = 5
 	RTMPTypeIDBandwidth          uint8 = 6
+	RTMPTypeIDCommandMessageAMF3 uint8 = 17
 	RTMPTypeIDCommandMessageAMF0 uint8 = 20
+
+	// user control message type
+	RTMPUserControlStreamBegin uint8 = 0
+	RTMPUserControlRecorded    uint8 = 4
 
 	// spec-video_file_format_spec_v10.pdf
 	// Video tags
@@ -30,16 +35,20 @@ const (
 	//     AVCPacketType   UI8
 	//     CompositionTime SI24
 	//     Data            UI8[n]
-	RTMPFrameTypeKey            uint8 = 1
-	RTMPFrameTypeInter          uint8 = 2
-	RTMPCodecIDAVC              uint8 = 7
-	RTMPCodecIDHEVC             uint8 = 12
+	RTMPFrameTypeKey   uint8 = 1
+	RTMPFrameTypeInter uint8 = 2
+
+	RTMPCodecIDAVC  uint8 = 7
+	RTMPCodecIDHEVC uint8 = 12
+
 	RTMPAVCPacketTypeSeqHeader  uint8 = 0
 	RTMPAVCPacketTypeNALU       uint8 = 1
 	RTMPHEVCPacketTypeSeqHeader       = RTMPAVCPacketTypeSeqHeader
 	RTMPHEVCPacketTypeNALU            = RTMPAVCPacketTypeNALU
-	RTMPAVCKeyFrame                   = RTMPFrameTypeKey<<4 | RTMPCodecIDAVC
-	RTMPHEVCKeyFrame                  = RTMPFrameTypeKey<<4 | RTMPCodecIDHEVC
+
+	RTMPAVCKeyFrame   = RTMPFrameTypeKey<<4 | RTMPCodecIDAVC
+	RTMPHEVCKeyFrame  = RTMPFrameTypeKey<<4 | RTMPCodecIDHEVC
+	RTMPAVCInterFrame = RTMPFrameTypeInter<<4 | RTMPCodecIDAVC
 
 	// spec-video_file_format_spec_v10.pdf
 	// Audio tags
@@ -51,7 +60,7 @@ const (
 	//   AACAUDIODATA
 	//     AACPacketType UI8
 	//     Data          UI8[n]
-	RTMPSoundFormatACC         uint8 = 10
+	RTMPSoundFormatAAC         uint8 = 10
 	RTMPAACPacketTypeSeqHeader       = 0
 	RTMPAACPacketTypeRaw             = 1
 )
@@ -94,5 +103,5 @@ func (msg RTMPMsg) IsVideoKeyNALU() bool {
 }
 
 func (msg RTMPMsg) IsAACSeqHeader() bool {
-	return msg.Header.MsgTypeID == RTMPTypeIDAudio && (msg.Payload[0]>>4) == RTMPSoundFormatACC && msg.Payload[1] == RTMPAACPacketTypeSeqHeader
+	return msg.Header.MsgTypeID == RTMPTypeIDAudio && (msg.Payload[0]>>4) == RTMPSoundFormatAAC && msg.Payload[1] == RTMPAACPacketTypeSeqHeader
 }

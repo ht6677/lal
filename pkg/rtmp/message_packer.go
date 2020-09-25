@@ -14,6 +14,7 @@ package rtmp
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/q191201771/lal/pkg/base"
@@ -76,17 +77,23 @@ func (packer *MessagePacker) writePeerBandwidth(writer io.Writer, val int, limit
 	return err
 }
 
-func (packer *MessagePacker) writeConnect(writer io.Writer, appName, tcURL string) error {
+// @param isPush: 推流为true，拉流为false
+func (packer *MessagePacker) writeConnect(writer io.Writer, appName, tcURL string, isPush bool) error {
 	packer.writeMessageHeader(csidOverConnection, 0, base.RTMPTypeIDCommandMessageAMF0, 0)
 	_ = AMF0.WriteString(packer.b, "connect")
 	_ = AMF0.WriteNumber(packer.b, float64(tidClientConnect))
 
-	objs := []ObjectPair{
-		{Key: "app", Value: appName},
-		{Key: "type", Value: "nonprivate"},
-		{Key: "flashVer", Value: "FMLE/3.0 (compatible; Lal0.0.1)"},
-		{Key: "tcUrl", Value: tcURL},
+	var objs []ObjectPair
+	objs = append(objs, ObjectPair{Key: "app", Value: appName})
+	objs = append(objs, ObjectPair{Key: "type", Value: "nonprivate"})
+	var flashVer string
+	if isPush {
+		flashVer = fmt.Sprintf("FMLE/3.0 (compatible; %s)", base.LALRTMPPushSessionConnectVersion)
+	} else {
+		flashVer = "LNX 9,0,124,2"
 	}
+	objs = append(objs, ObjectPair{Key: "flashVer", Value: flashVer})
+	objs = append(objs, ObjectPair{Key: "tcUrl", Value: tcURL})
 	_ = AMF0.WriteObject(packer.b, objs)
 	raw := packer.b.Bytes()
 	bele.BEPutUint24(raw[4:], uint32(len(raw)-12))
@@ -94,8 +101,9 @@ func (packer *MessagePacker) writeConnect(writer io.Writer, appName, tcURL strin
 	return err
 }
 
-func (packer *MessagePacker) writeConnectResult(writer io.Writer, tid int) error {
-	packer.writeMessageHeader(csidOverConnection, 190, base.RTMPTypeIDCommandMessageAMF0, 0)
+// @param objectEncoding 设置0或者3，表示是AMF0或AMF3，上层可根据connect信令中的objectEncoding值设置该值
+func (packer *MessagePacker) writeConnectResult(writer io.Writer, tid int, objectEncoding int) error {
+	packer.writeMessageHeader(csidOverConnection, 0, base.RTMPTypeIDCommandMessageAMF0, 0)
 	_ = AMF0.WriteString(packer.b, "_result")
 	_ = AMF0.WriteNumber(packer.b, float64(tid))
 	objs := []ObjectPair{
@@ -107,9 +115,12 @@ func (packer *MessagePacker) writeConnectResult(writer io.Writer, tid int) error
 		{Key: "level", Value: "status"},
 		{Key: "code", Value: "NetConnection.Connect.Success"},
 		{Key: "description", Value: "Connection succeeded."},
-		{Key: "objectEncoding", Value: 0},
+		{Key: "objectEncoding", Value: objectEncoding},
+		{Key: "version", Value: base.LALRTMPConnectResultVersion},
 	}
 	_ = AMF0.WriteObject(packer.b, objs)
+	raw := packer.b.Bytes()
+	bele.BEPutUint24(raw[4:], uint32(len(raw)-12))
 	_, err := packer.b.WriteTo(writer)
 	return err
 }
@@ -187,6 +198,22 @@ func (packer *MessagePacker) writeOnStatusPlay(writer io.Writer, streamID int) e
 		{Key: "description", Value: "Start live"},
 	}
 	_ = AMF0.WriteObject(packer.b, objs)
+	_, err := packer.b.WriteTo(writer)
+	return err
+}
+
+func (packer *MessagePacker) writeStreamIsRecorded(writer io.Writer, streamID uint32) error {
+	packer.writeMessageHeader(csidProtocolControl, 6, base.RTMPTypeIDUserControl, 0)
+	_ = bele.WriteBE(packer.b, uint16(base.RTMPUserControlRecorded))
+	_ = bele.WriteBE(packer.b, uint32(streamID))
+	_, err := packer.b.WriteTo(writer)
+	return err
+}
+
+func (packer *MessagePacker) writeStreamBegin(writer io.Writer, streamID uint32) error {
+	packer.writeMessageHeader(csidProtocolControl, 6, base.RTMPTypeIDUserControl, 0)
+	_ = bele.WriteBE(packer.b, uint16(base.RTMPUserControlStreamBegin))
+	_ = bele.WriteBE(packer.b, uint32(streamID))
 	_, err := packer.b.WriteTo(writer)
 	return err
 }

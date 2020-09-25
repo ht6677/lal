@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/q191201771/lal/pkg/httpts"
+
 	"github.com/q191201771/lal/pkg/rtsp"
 
 	"github.com/q191201771/lal/pkg/hls"
@@ -26,6 +28,7 @@ type ServerManager struct {
 	rtmpServer    *rtmp.Server
 	httpflvServer *httpflv.Server
 	hlsServer     *hls.Server
+	httptsServer  *httpts.Server
 	rtspServer    *rtsp.Server
 	exitChan      chan struct{}
 
@@ -41,11 +44,14 @@ func NewServerManager() *ServerManager {
 	if config.RTMPConfig.Enable {
 		m.rtmpServer = rtmp.NewServer(m, config.RTMPConfig.Addr)
 	}
-	if config.HTTPFLVConfig.Enable {
-		m.httpflvServer = httpflv.NewServer(m, config.HTTPFLVConfig.SubListenAddr)
+	if config.HTTPFLVConfig.Enable || config.HTTPFLVConfig.EnableHTTPS {
+		m.httpflvServer = httpflv.NewServer(m, config.HTTPFLVConfig.ServerConfig)
 	}
 	if config.HLSConfig.Enable {
 		m.hlsServer = hls.NewServer(config.HLSConfig.SubListenAddr, config.HLSConfig.OutPath)
+	}
+	if config.HTTPTSConfig.Enable {
+		m.httptsServer = httpts.NewServer(m, config.HTTPTSConfig.SubListenAddr)
 	}
 	if config.RTSPConfig.Enable {
 		m.rtspServer = rtsp.NewServer(config.RTSPConfig.Addr, m)
@@ -73,6 +79,18 @@ func (sm *ServerManager) RunLoop() {
 		}
 		go func() {
 			if err := sm.httpflvServer.RunLoop(); err != nil {
+				nazalog.Error(err)
+			}
+		}()
+	}
+
+	if sm.httptsServer != nil {
+		if err := sm.httptsServer.Listen(); err != nil {
+			nazalog.Error(err)
+			os.Exit(1)
+		}
+		go func() {
+			if err := sm.httptsServer.RunLoop(); err != nil {
 				nazalog.Error(err)
 			}
 		}()
@@ -131,6 +149,9 @@ func (sm *ServerManager) Dispose() {
 	}
 	if sm.httpflvServer != nil {
 		sm.httpflvServer.Dispose()
+	}
+	if sm.httptsServer != nil {
+		sm.httptsServer.Dispose()
 	}
 	if sm.hlsServer != nil {
 		sm.hlsServer.Dispose()
@@ -201,17 +222,42 @@ func (sm *ServerManager) OnDelHTTPFLVSubSession(session *httpflv.SubSession) {
 	}
 }
 
+// ServerObserver of httpts.Server
+func (sm *ServerManager) OnNewHTTPTSSubSession(session *httpts.SubSession) bool {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	group := sm.getOrCreateGroup(session.AppName, session.StreamName)
+	group.AddHTTPTSSubSession(session)
+	return true
+}
+
+// ServerObserver of httpts.Server
+func (sm *ServerManager) OnDelHTTPTSSubSession(session *httpts.SubSession) {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	group := sm.getGroup(session.AppName, session.StreamName)
+	if group != nil {
+		group.DelHTTPTSSubSession(session)
+	}
+}
+
 // ServerObserver of rtsp.Server
-func (sm *ServerManager) OnNewRTSPPubSession(session *rtsp.PubSession) {
+func (sm *ServerManager) OnNewRTSPPubSession(session *rtsp.PubSession) bool {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	group := sm.getOrCreateGroup("", session.StreamName)
-	group.AddRTSPPubSession(session)
+	return group.AddRTSPPubSession(session)
 }
 
 // ServerObserver of rtsp.Server
 func (sm *ServerManager) OnDelRTSPPubSession(session *rtsp.PubSession) {
 	// TODO chef: impl me
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	group := sm.getGroup("", session.StreamName)
+	if group != nil {
+		group.DelRTSPPubSession(session)
+	}
 }
 
 func (sm *ServerManager) iterateGroup() {

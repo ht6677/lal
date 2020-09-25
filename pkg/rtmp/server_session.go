@@ -69,8 +69,7 @@ type ServerSession struct {
 
 func NewServerSession(obs ServerSessionObserver, conn net.Conn) *ServerSession {
 	uk := unique.GenUniqueKey("RTMPPUBSUB")
-	nazalog.Infof("[%s] lifecycle new rtmp server session. addr=%s", uk, conn.RemoteAddr().String())
-	return &ServerSession{
+	s := &ServerSession{
 		conn: connection.New(conn, func(option *connection.Option) {
 			option.ReadBufSize = readBufSize
 		}),
@@ -81,6 +80,8 @@ func NewServerSession(obs ServerSessionObserver, conn net.Conn) *ServerSession {
 		packer:        NewMessagePacker(),
 		IsFresh:       true,
 	}
+	nazalog.Infof("[%s] lifecycle new rtmp ServerSession. session=%p, remote addr=%s", uk, s, conn.RemoteAddr().String())
+	return s
 }
 
 func (s *ServerSession) RunLoop() (err error) {
@@ -101,7 +102,7 @@ func (s *ServerSession) Flush() error {
 }
 
 func (s *ServerSession) Dispose() {
-	nazalog.Infof("[%s] lifecycle dispose rtmp server session.", s.UniqueKey)
+	nazalog.Infof("[%s] lifecycle dispose rtmp ServerSession.", s.UniqueKey)
 	_ = s.conn.Close()
 }
 
@@ -135,6 +136,8 @@ func (s *ServerSession) doMsg(stream *Stream) error {
 		// 因为底层的 chunk composer 已经处理过了，这里就不用处理
 	case base.RTMPTypeIDCommandMessageAMF0:
 		return s.doCommandMessage(stream)
+	case base.RTMPTypeIDCommandMessageAMF3:
+		return s.doCommandAFM3Message(stream)
 	case base.RTMPTypeIDMetadata:
 		return s.doDataMessageAMF0(stream)
 	case base.RTMPTypeIDAck:
@@ -233,6 +236,12 @@ func (s *ServerSession) doCommandMessage(stream *Stream) error {
 	return nil
 }
 
+func (s *ServerSession) doCommandAFM3Message(stream *Stream) error {
+	//去除前面的0就是AMF0的数据
+	stream.msg.consumed(1)
+	return s.doCommandMessage(stream)
+}
+
 func (s *ServerSession) doConnect(tid int, stream *Stream) error {
 	val, err := stream.msg.readObjectWithType()
 	if err != nil {
@@ -260,7 +269,11 @@ func (s *ServerSession) doConnect(tid int, stream *Stream) error {
 	}
 
 	nazalog.Infof("[%s] > W _result('NetConnection.Connect.Success').", s.UniqueKey)
-	if err := s.packer.writeConnectResult(s.conn, tid); err != nil {
+	oe, err := val.FindNumber("objectEncoding")
+	if oe != 0 && oe != 3 {
+		oe = 0
+	}
+	if err := s.packer.writeConnectResult(s.conn, tid, oe); err != nil {
 		return err
 	}
 	return nil
@@ -318,8 +331,15 @@ func (s *ServerSession) doPlay(tid int, stream *Stream) (err error) {
 	ss := strings.Split(s.StreamNameWithRawQuery, "?")
 	s.StreamName = ss[0]
 
-	nazalog.Infof("[%s] < R play('%s').", s.StreamName, s.UniqueKey)
+	nazalog.Infof("[%s] < R play('%s').", s.UniqueKey, s.StreamName)
 	// TODO chef: start duration reset
+
+	if err := s.packer.writeStreamIsRecorded(s.conn, MSID1); err != nil {
+		return err
+	}
+	if err := s.packer.writeStreamBegin(s.conn, MSID1); err != nil {
+		return err
+	}
 
 	nazalog.Infof("[%s] > W onStatus('NetStream.Play.Start').", s.UniqueKey)
 	if err := s.packer.writeOnStatusPlay(s.conn, MSID1); err != nil {
